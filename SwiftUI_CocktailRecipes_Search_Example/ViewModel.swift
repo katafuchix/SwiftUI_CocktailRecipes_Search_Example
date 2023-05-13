@@ -15,7 +15,9 @@ class ViewModel: ObservableObject {
   // MARK: - Output
   @Published private(set) var result: [Cocktail] = []
   @Published var isSearching = false
-  
+  @Published var showErrorAlert = false
+  @Published var error: Error?
+    
   // MARK: - Private
   private var cancellables = Set<AnyCancellable>()
   
@@ -31,29 +33,41 @@ class ViewModel: ObservableObject {
       .handleEvents(receiveOutput: { value in
         self.isSearching = true
       })
-      .map { searchTerm -> AnyPublisher<[Cocktail], Never> in
+      .map { searchTerm -> AnyPublisher<Result<[Cocktail], Error>, Never> in
         self.isSearching = true
         return self.searchCocktails(searchTerm)
+              .map { Result<[Cocktail], Error>.success($0) }
+              .catch { Just(Result<[Cocktail], Error>.failure($0)) }
+              .eraseToAnyPublisher()
       }
       .switchToLatest()
       .receive(on: DispatchQueue.main)
-      .sink(receiveValue: { cocktails in
-        self.result = cocktails
-        self.isSearching = false
+      .sink(receiveValue: { result in
+          switch result {
+          case .success(let response):
+              // 成功時の処理
+              self.isSearching = false
+              self.result = response
+              print("Received search response: \(response)")
+          case .failure(let error):
+              // エラー時の処理
+              print("Search failed with error: \(error)")
+              self.isSearching = false
+              self.showErrorAlert = true
+              self.error = error
+          }
       })
       .store(in: &cancellables)
   }
   
-  private func searchCocktails(_ searchWord: String) -> AnyPublisher<[Cocktail], Never> {
+  private func searchCocktails(_ searchWord: String) -> AnyPublisher<[Cocktail], Error> {
       let escapedSearchTerm = searchWord.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) ?? ""
-      guard let url = URL(string: "https://www.thecocktaildb.com/api/json/v1/1/search.php?s=\(escapedSearchTerm)") else {
-                  return Just([]).eraseToAnyPublisher()
-              }
+      let url = URL(string: "https://www.thecocktaildb.com/api/json/v1/1/search.php?s=\(escapedSearchTerm)")!
       return URLSession.shared.dataTaskPublisher(for: url)
         .map(\.data)
         .decode(type: CocktailSearchResult.self, decoder: JSONDecoder())
         .map(\.drinks)
-        .replaceError(with: [Cocktail]())
+        .mapError { $0 }
         .receive(on: RunLoop.main)
         .eraseToAnyPublisher()
   }

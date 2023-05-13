@@ -26,6 +26,9 @@ struct ContentView: View {
             .navigationTitle("Search Cacktail Combine")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $viewModel.searchWord)
+            .alert(isPresented: $viewModel.showErrorAlert) {
+                Alert(title: Text("エラー"), message: Text(viewModel.error?.localizedDescription ?? "エラー発生"), dismissButton: .default(Text("OK")))
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(action: {
